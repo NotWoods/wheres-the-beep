@@ -7,7 +7,7 @@ class GameState {
     }
     startLevel(audioPosition, now = Date.now()) {
         if (this.currentLevel) {
-            throw new Error('Level already started');
+            this.completeLevel(undefined, now);
         }
         const level = {
             audio: audioPosition,
@@ -198,18 +198,9 @@ class GameLogic {
 
 const game = new GameLogic(domeRadius);
 self.onmessage = async (evt) => {
-    self.postMessage({
-        type: 'display_result',
-        pointerPosition: game.raycast(evt.data.hand),
-    });
-    // await timeout(game.waitTime());
-    // self.postMessage(game.newAudioPoint());
+    self.postMessage(game.handlePlayerClick(evt.data.hand));
 };
 setInterval(() => {
-    const point = game.randomAudioPoint();
-    self.postMessage({
-        type: 'play_audio',
-        audioPosition: sphericalToCartesian(point, game.state.stageRadius),
-    });
+    self.postMessage(game.newAudioPoint());
 }, 9000);
 //# sourceMappingURL=index.js.map

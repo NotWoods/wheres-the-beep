@@ -1,4 +1,4 @@
-import { Ray, Matrix4, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, WireframeGeometry, LineSegments, Vector3, Clock, Scene, Color, PerspectiveCamera, AudioListener, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
+import { Ray, Matrix4, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, WireframeGeometry, LineSegments, Vector3, Clock, Scene, Color, PerspectiveCamera, AudioListener, QuadraticBezierCurve3, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
 import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
@@ -146,6 +146,7 @@ let renderer;
 let controller1, controller2;
 let beepSound;
 let pointerResult;
+let arcLine;
 let room;
 // let count = 0;
 const radius = 0.08;
@@ -168,6 +169,14 @@ function init() {
     const pointerWireframe = new WireframeGeometry(pointerSphere);
     pointerResult = new LineSegments(pointerWireframe, new LineBasicMaterial({ color: 0x0ad0ff }));
     scene.add(pointerResult);
+    const arcGeometry = new BufferGeometry();
+    const arcMaterial = new LineBasicMaterial({ color: 0x00ff00 });
+    arcLine = new Line(arcGeometry, arcMaterial);
+    scene.add(arcLine);
+    function toThreeVector(workerVector) {
+        const { x, y, z } = workerVector;
+        return new Vector3(x, y, z);
+    }
     const worker = new WorkerThread();
     worker.onmessage = (evt) => {
         console.log(evt.data);
@@ -178,8 +187,11 @@ function init() {
                 break;
             }
             case 'display_result': {
-                const { x, y, z } = evt.data.pointerPosition;
-                pointerResult.position.set(x, y, z);
+                const { pointerPosition, arc } = evt.data;
+                pointerResult.position.copy(toThreeVector(pointerPosition));
+                const curve = new QuadraticBezierCurve3(toThreeVector(arc[0]), toThreeVector(arc[1]), toThreeVector(arc[2]));
+                const points = curve.getPoints(50);
+                arcGeometry.setFromPoints(points);
                 break;
             }
         }
