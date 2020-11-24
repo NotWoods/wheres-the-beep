@@ -29,12 +29,7 @@ class GameState {
     }
 }
 
-/**
- * Taken from d3-geo.
- */
-function haversin(x) {
-    return (x = Math.sin(x / 2)) * x;
-}
+const ZERO = { x: 0, y: 0, z: 0 };
 /**
  * Function to generate random number
  * https://www.geeksforgeeks.org/how-to-generate-random-number-in-given-range-using-javascript/
@@ -54,84 +49,32 @@ function scale(c, v) {
 function add(a, b) {
     return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
 }
+function subtract(a, b) {
+    return add(a, scale(-1, b));
+}
+function distanceSquared(a, b) {
+    const parts = subtract(b, a);
+    return dot(parts, parts);
+}
 
 /**
  * Find the point where the ray intersects with a sphere centered at the origin.
- * https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-sphere-intersection
+ * https://github.com/libgdx/libgdx/blob/9eba80c6694160c743e43d4c3a5d60a5bad06f30/gdx/src/com/badlogic/gdx/math/Intersector.java#L353
  */
-function raycastOnSphere(ray, sphereRadius) {
-    // sphere's origin is 0, 0, 0
-    const radius2 = sphereRadius ** 2;
-    const L = { x: -ray.origin.x, y: -ray.origin.y, z: -ray.origin.z };
-    const tca = dot(L, ray.direction);
-    if (tca < 0)
+function raycastOnSphereToPoint(ray, sphereRadius) {
+    const center = ZERO;
+    const len = dot(ray.direction, subtract(center, ray.origin));
+    // behind the ray
+    if (len < 0)
         return undefined;
-    const d2 = dot(L, L) - tca ** 2;
-    if (d2 > radius2)
+    const dst2 = distanceSquared(center, add(ray.origin, scale(len, ray.direction)));
+    const r2 = sphereRadius * sphereRadius;
+    if (dst2 > r2)
         return undefined;
-    const thc = Math.sqrt(radius2 - d2);
-    let t0 = tca - thc;
-    let t1 = tca + thc;
-    if (t0 > t1) {
-        const oldt1 = t1;
-        t1 = t0;
-        t0 = oldt1;
-    }
-    if (t0 < 0) {
-        // if t0 is negative, let's use t1 instead
-        t0 = t1;
-        // if both t0 and t1 are negative
-        if (t0 < 0)
-            return undefined;
-    }
-    return t0;
+    return rayToPoint(ray, len - Math.sqrt(r2 - dst2));
 }
 function rayToPoint(ray, distance) {
     return add(ray.origin, scale(distance, ray.direction));
-}
-function raycastOnSphereToPoint(ray, sphereRadius) {
-    const t = raycastOnSphere(ray, sphereRadius);
-    if (t == undefined)
-        return undefined;
-    return rayToPoint(ray, t);
-}
-/**
- * Returns an interpolator function given two points.
- * The returned interpolator function takes a single argument t,
- * where t is a number ranging from 0 to 1;
- * a value of 0 returns the point `from`,
- * while a value of 1 returns the point `to`.
- * Intermediate values interpolate from between them along the great arc
- * that passes through both. If they are antipodes,
- * an arbitrary great arc is chosen.
- *
- * Taken from d3-geo and modified to use radians.
- */
-function sphericalInterpolate(from, to) {
-    const x0 = from.phi;
-    const y0 = from.theta;
-    const x1 = to.phi;
-    const y1 = to.theta;
-    const cy0 = Math.cos(y0), sy0 = Math.sin(y0), cy1 = Math.cos(y1), sy1 = Math.sin(y1), kx0 = cy0 * Math.cos(x0), ky0 = cy0 * Math.sin(x0), kx1 = cy1 * Math.cos(x1), ky1 = cy1 * Math.sin(x1), d = 2 *
-        Math.asin(Math.sqrt(haversin(y1 - y0) + cy0 * cy1 * haversin(x1 - x0))), k = Math.sin(d);
-    if (d === 0) {
-        function interpolate() {
-            return from;
-        }
-        interpolate.distance = 0;
-        return interpolate;
-    }
-    else {
-        function interpolate(t) {
-            const B = Math.sin((t *= d)) / k, A = Math.sin(d - t) / k, x = A * kx0 + B * kx1, y = A * ky0 + B * ky1, z = A * sy0 + B * sy1;
-            return {
-                theta: Math.atan2(z, Math.sqrt(x * x + y * y)),
-                phi: Math.atan2(y, x),
-            };
-        }
-        interpolate.distance = d;
-        return interpolate;
-    }
 }
 function cartesianToSpherical(vector) {
     const polar = Math.atan(Math.sqrt(vector.x ** 2 + vector.z ** 2) / vector.y);
@@ -173,17 +116,28 @@ class GameLogic {
         const { stageRadius } = this.state;
         // raycast hand onto sphere
         // fallback to some point in distance if player exits the game dome
-        const pointCartesian = this.raycast(hand);
+        const pointCartesian = raycastOnSphereToPoint(hand, stageRadius);
         // go from raycast point to radian lat lng
-        const pointSpherical = cartesianToSpherical(pointCartesian);
+        const pointSpherical = cartesianToSpherical(pointCartesian || rayToPoint(hand, stageRadius));
         // complete level
         const { audio } = this.state.completeLevel(pointSpherical);
-        // return an arc
-        const interpolate = sphericalInterpolate(pointSpherical, audio);
+        const height = stageRadius / 2;
+        const h = stageRadius - height;
+        const rSquared = (2 * h * stageRadius) - (h ** 2);
         return {
             type: 'display_result',
-            pointerPosition: pointCartesian,
-            arc: [pointSpherical, interpolate(0.5), audio].map((point) => sphericalToCartesian(point, stageRadius)),
+            pointerPosition: sphericalToCartesian(pointSpherical, stageRadius),
+            arc: [
+                sphericalToCartesian(pointSpherical, stageRadius),
+                sphericalToCartesian(audio, stageRadius),
+            ],
+            raycastSuccess: Boolean(pointCartesian),
+            arcCurve: {
+                height,
+                radius: Math.sqrt(rSquared),
+                startAngle: pointSpherical.phi,
+                endAngle: audio.phi,
+            }
         };
     }
     newAudioPoint() {

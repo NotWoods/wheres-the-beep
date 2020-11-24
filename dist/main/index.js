@@ -1,4 +1,4 @@
-import { Ray, Matrix4, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, WireframeGeometry, LineSegments, Vector3, Clock, Scene, Color, PerspectiveCamera, AudioListener, QuadraticBezierCurve3, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
+import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, WireframeGeometry, LineSegments, EllipseCurve, Clock, Scene, Color, PerspectiveCamera, AudioListener, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
 import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
@@ -6,32 +6,38 @@ var workerUrl = "dist/worker/index.js";
 
 const ray = new Ray();
 const tempMatrix = new Matrix4();
+function toThreeVector(workerVector) {
+    const { x, y, z } = workerVector;
+    return new Vector3(x, y, z);
+}
+function fromThreeVector(threeVector) {
+    return {
+        x: threeVector.x,
+        y: threeVector.y,
+        z: threeVector.z,
+    };
+}
 class WorkerThread {
     constructor() {
         this.worker = new Worker(workerUrl);
-    }
-    set onmessage(value) {
-        this.worker.onmessage = value;
+        this.worker.onmessage = (evt) => {
+            console.log(evt.data);
+            this.onMessage?.(evt.data);
+        };
     }
     sendPlayerClick(controller) {
         tempMatrix.identity().extractRotation(controller.controller.matrixWorld);
         ray.origin.setFromMatrixPosition(controller.controller.matrixWorld);
         ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
         ray.direction.normalize();
-        this.worker.postMessage({
+        const message = {
             hand: {
-                origin: {
-                    x: ray.origin.x,
-                    y: ray.origin.y,
-                    z: ray.origin.z,
-                },
-                direction: {
-                    x: ray.direction.x,
-                    y: ray.direction.y,
-                    z: ray.direction.z,
-                },
+                origin: fromThreeVector(ray.origin),
+                direction: fromThreeVector(ray.direction),
             },
-        });
+        };
+        console.log(message);
+        this.worker.postMessage(message);
     }
 }
 
@@ -139,6 +145,11 @@ class Sound {
     }
 }
 
+function getPoints(radius, startAngle, endAngle) {
+    const curve = new EllipseCurve(0, 0, radius, radius, startAngle, endAngle, false, 0);
+    return curve.getPoints(50);
+}
+
 let camera;
 let audioListener;
 let scene;
@@ -167,31 +178,30 @@ function init() {
     scene.add(beepSound.mesh);
     const pointerSphere = new SphereBufferGeometry(0.25, 8, 6);
     const pointerWireframe = new WireframeGeometry(pointerSphere);
-    pointerResult = new LineSegments(pointerWireframe, new LineBasicMaterial({ color: 0x0ad0ff }));
+    const pointerMaterial = new LineBasicMaterial({ color: 0x0ad0ff });
+    pointerResult = new LineSegments(pointerWireframe, pointerMaterial);
     scene.add(pointerResult);
     const arcGeometry = new BufferGeometry();
+    arcGeometry.setFromPoints(getPoints(domeRadius, 0, 2 * Math.PI));
     const arcMaterial = new LineBasicMaterial({ color: 0x00ff00 });
     arcLine = new Line(arcGeometry, arcMaterial);
+    arcLine.lookAt(0, 1, 0);
+    arcLine.rotateX(Math.PI);
     scene.add(arcLine);
-    function toThreeVector(workerVector) {
-        const { x, y, z } = workerVector;
-        return new Vector3(x, y, z);
-    }
     const worker = new WorkerThread();
-    worker.onmessage = (evt) => {
-        console.log(evt.data);
-        switch (evt.data.type) {
+    worker.onMessage = (data) => {
+        switch (data.type) {
             case 'play_audio': {
-                const { x, y, z } = evt.data.audioPosition;
+                const { x, y, z } = data.audioPosition;
                 beepSound.play(x, y, z);
                 break;
             }
             case 'display_result': {
-                const { pointerPosition, arc } = evt.data;
+                const { pointerPosition, arcCurve, raycastSuccess } = data;
                 pointerResult.position.copy(toThreeVector(pointerPosition));
-                const curve = new QuadraticBezierCurve3(toThreeVector(arc[0]), toThreeVector(arc[1]), toThreeVector(arc[2]));
-                const points = curve.getPoints(50);
-                arcGeometry.setFromPoints(points);
+                pointerMaterial.color.setHex(raycastSuccess ? 0x0ad0ff : 0x2150ff);
+                arcGeometry.setFromPoints(getPoints(arcCurve.radius, arcCurve.startAngle, arcCurve.endAngle));
+                arcLine.position.y = arcCurve.height;
                 break;
             }
         }
@@ -251,6 +261,7 @@ function render() {
     const debug = controller1.isSqueezing || controller2.isSqueezing;
     beepSound.mesh.visible = debug;
     pointerResult.visible = debug;
+    arcLine.visible = debug;
     controller1.render();
     controller2.render();
     //
