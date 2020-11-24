@@ -160,8 +160,8 @@ class SoundSphere {
     }
 }
 
-function getPoints(radius, startAngle, endAngle) {
-    const curve = new EllipseCurve(0, 0, radius, radius, startAngle, endAngle, false, 0);
+function getPoints(radius, startAngle, endAngle, clockwise = false) {
+    const curve = new EllipseCurve(0, 0, radius, radius, startAngle, endAngle, clockwise, 0);
     return curve.getPoints(50);
 }
 class Arc {
@@ -178,10 +178,10 @@ class Arc {
         this.reset();
     }
     reset() {
-        this.geometry.setFromPoints(getPoints(this.radius, 0, 2 * Math.PI));
+        this.geometry.setFromPoints(getPoints(this.radius, 0, 2 * Math.PI, false));
     }
-    set(startAngle, endAngle) {
-        this.geometry.setFromPoints(getPoints(this.radius, startAngle, endAngle));
+    set(startAngle, endAngle, clockwise = false) {
+        this.geometry.setFromPoints(getPoints(this.radius, startAngle, endAngle, clockwise));
     }
 }
 
@@ -229,13 +229,14 @@ function init() {
     pointerResult.add(badSound.audio);
     arc = new Arc(domeRadius, domeRadius / 4);
     scene.add(arc.line);
+    arc.line.visible = false;
     const worker = new WorkerThread(raycaster);
     worker.onMessage = (data) => {
         switch (data.type) {
             case 'play_audio': {
                 const { x, y, z } = data.audioPosition;
                 beepSound.play(x, y, z);
-                arc.reset();
+                arc.line.visible = false;
                 break;
             }
             case 'display_result': {
@@ -245,6 +246,7 @@ function init() {
                 }
                 if (arcCurve) {
                     arc.set(arcCurve.startAngle, arcCurve.endAngle);
+                    arc.line.visible = true;
                 }
                 if (goodGuess) {
                     goodSound.play();
