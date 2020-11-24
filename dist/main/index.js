@@ -1,4 +1,4 @@
-import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, WireframeGeometry, LineSegments, EllipseCurve, Clock, Scene, Color, PerspectiveCamera, AudioListener, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
+import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, WireframeGeometry, LineSegments, EllipseCurve, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
 import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
@@ -18,23 +18,23 @@ function fromThreeVector(threeVector) {
     };
 }
 class WorkerThread {
-    constructor() {
+    constructor(raycaster) {
+        this.raycaster = raycaster;
         this.worker = new Worker(workerUrl);
         this.worker.onmessage = (evt) => {
             console.log(evt.data);
             this.onMessage?.(evt.data);
         };
     }
-    sendPlayerClick(controller) {
+    sendPlayerClick(controller, dome) {
         tempMatrix.identity().extractRotation(controller.controller.matrixWorld);
         ray.origin.setFromMatrixPosition(controller.controller.matrixWorld);
         ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
         ray.direction.normalize();
+        this.raycaster.set(ray.origin, ray.direction);
+        const [{ point }] = this.raycaster.intersectObjects(dome);
         const message = {
-            hand: {
-                origin: fromThreeVector(ray.origin),
-                direction: fromThreeVector(ray.direction),
-            },
+            hand: fromThreeVector(point),
         };
         console.log(message);
         this.worker.postMessage(message);
@@ -132,9 +132,10 @@ class Sound {
         this.audio.setBuffer(buffer);
     }
     play() {
-        /*if (this.audio.isPlaying) {
-          this.audio.stop()
-        }*/
+        if (this.audio.isPlaying) {
+            this.audio.stop();
+            this.audio.isPlaying = false;
+        }
         this.audio.play();
     }
 }
@@ -163,6 +164,26 @@ function getPoints(radius, startAngle, endAngle) {
     const curve = new EllipseCurve(0, 0, radius, radius, startAngle, endAngle, false, 0);
     return curve.getPoints(50);
 }
+class Arc {
+    constructor(sphereRadius, height) {
+        const h = sphereRadius - height;
+        const rSquared = (2 * h * sphereRadius) - (h ** 2);
+        this.radius = Math.sqrt(rSquared);
+        this.geometry = new BufferGeometry();
+        const arcMaterial = new LineBasicMaterial({ color: 0x00ff00 });
+        this.line = new Line(this.geometry, arcMaterial);
+        this.line.lookAt(0, 1, 0);
+        this.line.rotateX(Math.PI);
+        this.line.position.y = height;
+        this.reset();
+    }
+    reset() {
+        this.geometry.setFromPoints(getPoints(this.radius, 0, 2 * Math.PI));
+    }
+    set(startAngle, endAngle) {
+        this.geometry.setFromPoints(getPoints(this.radius, startAngle, endAngle));
+    }
+}
 
 let camera;
 let audioListener;
@@ -173,7 +194,8 @@ let beepSound;
 let goodSound;
 let badSound;
 let pointerResult;
-let arcLine;
+let raycaster;
+let arc;
 let room;
 // let count = 0;
 const radius = 0.08;
@@ -189,6 +211,8 @@ function init() {
     camera.position.set(0, 1.6, 3);
     audioListener = new AudioListener();
     camera.add(audioListener);
+    raycaster = new Raycaster();
+    raycaster.camera = camera;
     beepSound = new SoundSphere(audioListener, 0xaa3939);
     beepSound.load('assets/audio/echo.wav');
     scene.add(beepSound.mesh);
@@ -203,27 +227,25 @@ function init() {
     badSound = new Sound(audioListener);
     badSound.load('assets/audio/wrong.wav');
     pointerResult.add(badSound.audio);
-    const arcGeometry = new BufferGeometry();
-    arcGeometry.setFromPoints(getPoints(domeRadius, 0, 2 * Math.PI));
-    const arcMaterial = new LineBasicMaterial({ color: 0x00ff00 });
-    arcLine = new Line(arcGeometry, arcMaterial);
-    arcLine.lookAt(0, 1, 0);
-    arcLine.rotateX(Math.PI);
-    scene.add(arcLine);
-    const worker = new WorkerThread();
+    arc = new Arc(domeRadius, domeRadius / 4);
+    scene.add(arc.line);
+    const worker = new WorkerThread(raycaster);
     worker.onMessage = (data) => {
         switch (data.type) {
             case 'play_audio': {
                 const { x, y, z } = data.audioPosition;
                 beepSound.play(x, y, z);
+                arc.reset();
                 break;
             }
             case 'display_result': {
-                const { pointerPosition, arcCurve, raycastSuccess, goodGuess } = data;
-                pointerResult.position.copy(toThreeVector(pointerPosition));
-                pointerMaterial.color.setHex(raycastSuccess ? 0x0ad0ff : 0x2150ff);
-                arcGeometry.setFromPoints(getPoints(arcCurve.radius, arcCurve.startAngle, arcCurve.endAngle));
-                arcLine.position.y = arcCurve.height;
+                const { pointerPosition, arcCurve, goodGuess } = data;
+                if (pointerPosition) {
+                    pointerResult.position.copy(toThreeVector(pointerPosition));
+                }
+                if (arcCurve) {
+                    arc.set(arcCurve.startAngle, arcCurve.endAngle);
+                }
                 if (goodGuess) {
                     goodSound.play();
                 }
@@ -269,7 +291,7 @@ function init() {
     scene.add(controller1.grip);
     scene.add(controller2.grip);
     function onSelect() {
-        worker.sendPlayerClick(this);
+        worker.sendPlayerClick(this, [dome, floor]);
     }
     controller1.onselect = onSelect;
     controller2.onselect = onSelect;
@@ -289,7 +311,6 @@ function render() {
     const debug = controller1.isSqueezing || controller2.isSqueezing;
     beepSound.mesh.visible = debug;
     pointerResult.visible = debug;
-    arcLine.visible = debug;
     controller1.render();
     controller2.render();
     //

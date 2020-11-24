@@ -32,7 +32,6 @@ class GameState {
     }
 }
 
-const ZERO = { x: 0, y: 0, z: 0 };
 /**
  * Function to generate random number
  * https://www.geeksforgeeks.org/how-to-generate-random-number-in-given-range-using-javascript/
@@ -40,45 +39,7 @@ const ZERO = { x: 0, y: 0, z: 0 };
 function random(min, max) {
     return Math.random() * (max - min) + min;
 }
-/**
- * Get dot product for 2 vectors
- */
-function dot(a, b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-function scale(c, v) {
-    return { x: c * v.x, y: c * v.y, z: c * v.z };
-}
-function add(a, b) {
-    return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
-}
-function subtract(a, b) {
-    return add(a, scale(-1, b));
-}
-function distanceSquared(a, b) {
-    const parts = subtract(b, a);
-    return dot(parts, parts);
-}
 
-/**
- * Find the point where the ray intersects with a sphere centered at the origin.
- * https://github.com/libgdx/libgdx/blob/9eba80c6694160c743e43d4c3a5d60a5bad06f30/gdx/src/com/badlogic/gdx/math/Intersector.java#L353
- */
-function raycastOnSphereToPoint(ray, sphereRadius) {
-    const center = ZERO;
-    const len = dot(ray.direction, subtract(center, ray.origin));
-    // behind the ray
-    if (len < 0)
-        return undefined;
-    const dst2 = distanceSquared(center, add(ray.origin, scale(len, ray.direction)));
-    const r2 = sphereRadius * sphereRadius;
-    if (dst2 > r2)
-        return undefined;
-    return rayToPoint(ray, len - Math.sqrt(r2 - dst2));
-}
-function rayToPoint(ray, distance) {
-    return add(ray.origin, scale(distance, ray.direction));
-}
 function cartesianToSpherical(vector) {
     const polar = Math.atan(Math.sqrt(vector.x ** 2 + vector.z ** 2) / vector.y);
     if (polar === 0) {
@@ -92,6 +53,12 @@ function sphericalToCartesian(point, sphereRadius) {
     const z = sphereRadius * Math.sin(point.theta) * Math.sin(point.phi);
     const y = sphereRadius * Math.cos(point.theta);
     return { x, y, z };
+}
+/**
+ * Normalize a radian angle
+ */
+function positiveRadian(angle) {
+    return ((angle + Math.PI) % (Math.PI * 2)) - Math.PI;
 }
 
 class GameLogic {
@@ -107,40 +74,37 @@ class GameLogic {
     waitTime() {
         return 10000;
     }
-    raycast(hand) {
+    handlePlayerClick(pointerPosition) {
         const { stageRadius } = this.state;
-        // raycast hand onto sphere
-        // fallback to some point in distance if player exits the game dome
-        const pointCartesian = raycastOnSphereToPoint(hand, stageRadius) ||
-            rayToPoint(hand, stageRadius);
-        return pointCartesian;
-    }
-    handlePlayerClick(hand) {
-        const { stageRadius } = this.state;
-        // raycast hand onto sphere
-        // fallback to some point in distance if player exits the game dome
-        const pointCartesian = raycastOnSphereToPoint(hand, stageRadius);
+        if (!pointerPosition) {
+            this.state.completeLevel(undefined);
+            return {
+                type: 'display_result',
+                pointerPosition: undefined,
+                arcCurve: undefined,
+                goodGuess: false
+            };
+        }
         // go from raycast point to radian lat lng
-        const pointSpherical = cartesianToSpherical(pointCartesian || rayToPoint(hand, stageRadius));
+        const pointSpherical = cartesianToSpherical(pointerPosition);
         // complete level
         const { audio } = this.state.completeLevel(pointSpherical);
-        const height = stageRadius / 2;
+        const height = stageRadius / 4;
         const h = stageRadius - height;
         const rSquared = (2 * h * stageRadius) - (h ** 2);
-        const startAngle = pointSpherical.phi;
-        const endAngle = audio.phi;
+        const startAngle = positiveRadian(pointSpherical.phi);
+        const endAngle = positiveRadian(audio.phi);
         const GOOD_GUESS_THRESHOLD = 1;
         return {
             type: 'display_result',
-            pointerPosition: sphericalToCartesian(pointSpherical, stageRadius),
-            raycastSuccess: Boolean(pointCartesian),
+            pointerPosition,
             arcCurve: {
                 height,
                 radius: Math.sqrt(rSquared),
                 startAngle,
                 endAngle,
             },
-            goodGuess: Math.abs(endAngle - startAngle) < GOOD_GUESS_THRESHOLD
+            goodGuess: positiveRadian(endAngle - startAngle) < GOOD_GUESS_THRESHOLD
         };
     }
     newAudioPoint() {
