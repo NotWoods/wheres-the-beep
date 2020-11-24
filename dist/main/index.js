@@ -167,7 +167,7 @@ function getPoints(radius, startAngle, endAngle) {
 class Arc {
     constructor(sphereRadius, height) {
         const h = sphereRadius - height;
-        const rSquared = (2 * h * sphereRadius) - (h ** 2);
+        const rSquared = 2 * h * sphereRadius - h ** 2;
         this.radius = Math.sqrt(rSquared);
         this.geometry = new BufferGeometry();
         const arcMaterial = new LineBasicMaterial({ color: 0x00ff00 });
