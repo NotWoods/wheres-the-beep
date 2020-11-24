@@ -39,6 +39,25 @@ class GameState {
 function random(min, max) {
     return Math.random() * (max - min) + min;
 }
+/**
+ * Get dot product for 2 vectors
+ */
+function dot(a, b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+function scale(c, v) {
+    return { x: c * v.x, y: c * v.y, z: c * v.z };
+}
+function add(a, b) {
+    return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+}
+function subtract(a, b) {
+    return add(a, scale(-1, b));
+}
+function distanceSquared(a, b) {
+    const parts = subtract(b, a);
+    return dot(parts, parts);
+}
 
 function cartesianToSpherical(vector) {
     const polar = Math.atan(Math.sqrt(vector.x ** 2 + vector.z ** 2) / vector.y);
@@ -94,10 +113,15 @@ class GameLogic {
         const rSquared = 2 * h * stageRadius - h ** 2;
         const startAngle = positiveRadian(pointSpherical.phi);
         const endAngle = positiveRadian(audio.phi);
+        const end = sphericalToCartesian(audio, stageRadius);
         const GOOD_GUESS_THRESHOLD = 1;
         return {
             type: 'display_result',
             pointerPosition,
+            line: {
+                length: Math.sqrt(distanceSquared(pointerPosition, end)),
+                end,
+            },
             arcCurve: {
                 height,
                 radius: Math.sqrt(rSquared),

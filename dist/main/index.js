@@ -1,4 +1,4 @@
-import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, WireframeGeometry, LineSegments, EllipseCurve, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
+import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, MeshLambertMaterial, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, CylinderBufferGeometry, Object3D, WireframeGeometry, LineSegments, CircleBufferGeometry, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
 import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
@@ -91,7 +91,6 @@ class ControllerManager {
                 this.geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3));
                 this.geometry.setAttribute('color', new Float32BufferAttribute([0.5, 0.5, 0.5, 0, 0, 0], 3));
                 this.material = new LineBasicMaterial({
-                    color: 0xff0000,
                     vertexColors: true,
                     blending: AdditiveBlending,
                 });
@@ -112,14 +111,7 @@ class ControllerManager {
                 return undefined;
         }
     }
-    render() {
-        if (this.isSelecting) {
-            this.material?.color?.setHex(0x00ff00);
-        }
-        else {
-            this.material?.color?.setHex(0xff0000);
-        }
-    }
+    render() { }
 }
 
 const audioLoader = new AudioLoader();
@@ -139,49 +131,20 @@ class Sound {
         this.audio.play();
     }
 }
-class SoundSphere {
-    constructor(listener, color) {
-        this.sound = new Sound(listener);
-        const sphere = new SphereBufferGeometry(0.25, 8, 6);
-        const wireframe = new WireframeGeometry(sphere);
-        this.mesh = new LineSegments(wireframe, new LineBasicMaterial({ color }));
-        this.mesh.visible = false;
-        this.mesh.add(this.sound.audio);
+class Sphere {
+    constructor(radius) {
+        this.debug = false;
+        this.visible = false;
+        const geometry = new SphereBufferGeometry(radius, 8, 6);
+        this.material = new MeshLambertMaterial({
+            color: 0x404444,
+            emissive: 0x898989,
+        });
+        this.mesh = new Mesh(geometry, this.material);
     }
-    async load(url) {
-        return this.sound.load(url);
-    }
-    play(x, y, z) {
-        /*if (this.audio.isPlaying) {
-          this.audio.stop()
-        }*/
-        this.mesh.position.set(x, y, z);
-        this.sound.play();
-    }
-}
-
-function getPoints(radius, startAngle, endAngle, clockwise = false) {
-    const curve = new EllipseCurve(0, 0, radius, radius, startAngle, endAngle, clockwise, 0);
-    return curve.getPoints(50);
-}
-class Arc {
-    constructor(sphereRadius, height) {
-        const h = sphereRadius - height;
-        const rSquared = 2 * h * sphereRadius - h ** 2;
-        this.radius = Math.sqrt(rSquared);
-        this.geometry = new BufferGeometry();
-        const arcMaterial = new LineBasicMaterial({ color: 0x00ff00 });
-        this.line = new Line(this.geometry, arcMaterial);
-        this.line.lookAt(0, 1, 0);
-        this.line.rotateX(Math.PI);
-        this.line.position.y = height;
-        this.reset();
-    }
-    reset() {
-        this.geometry.setFromPoints(getPoints(this.radius, 0, 2 * Math.PI, false));
-    }
-    set(startAngle, endAngle, clockwise = false) {
-        this.geometry.setFromPoints(getPoints(this.radius, startAngle, endAngle, clockwise));
+    render() {
+        this.material.wireframe = this.debug;
+        this.mesh.visible = this.visible || this.debug;
     }
 }
 
@@ -190,12 +153,8 @@ let audioListener;
 let scene;
 let renderer;
 let controller1, controller2;
-let beepSound;
-let goodSound;
-let badSound;
-let pointerResult;
+let beepMesh, pointerResult;
 let raycaster;
-let arc;
 let room;
 // let count = 0;
 const radius = 0.08;
@@ -206,47 +165,62 @@ init();
 animate();
 function init() {
     scene = new Scene();
-    scene.background = new Color(0x505050);
-    camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10);
+    scene.background = new Color(0x040611);
+    camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 7);
     camera.position.set(0, 1.6, 3);
     audioListener = new AudioListener();
     camera.add(audioListener);
     raycaster = new Raycaster();
     raycaster.camera = camera;
-    beepSound = new SoundSphere(audioListener, 0xaa3939);
+    const beepSound = new Sound(audioListener);
     beepSound.load('assets/audio/echo.wav');
-    scene.add(beepSound.mesh);
-    const pointerSphere = new SphereBufferGeometry(0.25, 8, 6);
-    const pointerWireframe = new WireframeGeometry(pointerSphere);
-    const pointerMaterial = new LineBasicMaterial({ color: 0x0ad0ff });
-    pointerResult = new LineSegments(pointerWireframe, pointerMaterial);
-    scene.add(pointerResult);
-    goodSound = new Sound(audioListener);
+    beepMesh = new Sphere(0.1);
+    beepMesh.mesh.add(beepSound.audio);
+    scene.add(beepMesh.mesh);
+    pointerResult = new Sphere(0.15);
+    scene.add(pointerResult.mesh);
+    const goodSound = new Sound(audioListener);
     goodSound.load('assets/audio/correct.wav');
-    pointerResult.add(goodSound.audio);
-    badSound = new Sound(audioListener);
+    pointerResult.mesh.add(goodSound.audio);
+    const badSound = new Sound(audioListener);
     badSound.load('assets/audio/wrong.wav');
-    pointerResult.add(badSound.audio);
-    arc = new Arc(domeRadius, domeRadius / 4);
-    scene.add(arc.line);
-    arc.line.visible = false;
+    pointerResult.mesh.add(badSound.audio);
+    const coneGeometry = new CylinderBufferGeometry(0.02, 0.045, 1, 10, 1, true);
+    coneGeometry.rotateX(Math.PI / 2);
+    const coneMaterial = new MeshLambertMaterial({
+        color: 0x404444,
+        emissive: 0x898989,
+    });
+    const coneInner = new Mesh(coneGeometry, coneMaterial);
+    const cone = new Object3D();
+    coneInner.position.set(0, 0, 0.5);
+    cone.add(coneInner);
+    cone.visible = false;
+    scene.add(cone);
     const worker = new WorkerThread(raycaster);
     worker.onMessage = (data) => {
         switch (data.type) {
             case 'play_audio': {
-                const { x, y, z } = data.audioPosition;
-                beepSound.play(x, y, z);
-                arc.line.visible = false;
+                const { audioPosition } = data;
+                beepMesh.mesh.position.copy(toThreeVector(audioPosition));
+                beepSound.play();
+                cone.visible = false;
+                beepMesh.visible = false;
+                pointerResult.visible = false;
                 break;
             }
             case 'display_result': {
-                const { pointerPosition, arcCurve, goodGuess } = data;
+                const { pointerPosition, line, goodGuess } = data;
                 if (pointerPosition) {
-                    pointerResult.position.copy(toThreeVector(pointerPosition));
-                }
-                if (arcCurve) {
-                    arc.set(arcCurve.startAngle, arcCurve.endAngle);
-                    arc.line.visible = true;
+                    pointerResult.mesh.position.copy(toThreeVector(pointerPosition));
+                    pointerResult.visible = true;
+                    beepMesh.visible = true;
+                    if (line) {
+                        cone.scale.z = line.length;
+                        cone.position.copy(toThreeVector(pointerPosition));
+                        cone.lookAt(toThreeVector(line.end));
+                        cone.visible = true;
+                    }
                 }
                 if (goodGuess) {
                     goodSound.play();
@@ -261,11 +235,11 @@ function init() {
     const sphereGeometry = new SphereBufferGeometry(domeRadius, 20, 20, 0, undefined, Math.PI / 2);
     sphereGeometry.rotateX(Math.PI);
     const wireframe = new WireframeGeometry(sphereGeometry);
-    const dome = new LineSegments(wireframe, new LineBasicMaterial({ color: 0x808080 }));
+    const dome = new LineSegments(wireframe, new LineBasicMaterial({ color: 0x010207 }));
     scene.add(dome);
     const circle = new CircleBufferGeometry(domeRadius, 20);
     const floor = new Mesh(circle, new MeshLambertMaterial({
-        color: 0x111111,
+        color: 0x000001,
     }));
     floor.geometry.rotateX(-Math.PI / 2);
     scene.add(floor);
@@ -311,8 +285,9 @@ function animate() {
 }
 function render() {
     const debug = controller1.isSqueezing || controller2.isSqueezing;
-    beepSound.mesh.visible = debug;
-    pointerResult.visible = debug;
+    beepMesh.debug = debug;
+    beepMesh.render();
+    pointerResult.render();
     controller1.render();
     controller2.render();
     //
