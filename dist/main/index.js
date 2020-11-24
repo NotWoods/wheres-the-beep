@@ -126,22 +126,36 @@ const audioLoader = new AudioLoader();
 class Sound {
     constructor(listener) {
         this.audio = new PositionalAudio(listener);
-        const sphere = new SphereBufferGeometry(0.25, 8, 6);
-        const wireframe = new WireframeGeometry(sphere);
-        this.mesh = new LineSegments(wireframe, new LineBasicMaterial({ color: 0xaa3939 }));
-        this.mesh.add(this.audio);
-        this.mesh.visible = false;
     }
     async load(url) {
         const buffer = await audioLoader.loadAsync(url);
         this.audio.setBuffer(buffer);
+    }
+    play() {
+        /*if (this.audio.isPlaying) {
+          this.audio.stop()
+        }*/
+        this.audio.play();
+    }
+}
+class SoundSphere {
+    constructor(listener, color) {
+        this.sound = new Sound(listener);
+        const sphere = new SphereBufferGeometry(0.25, 8, 6);
+        const wireframe = new WireframeGeometry(sphere);
+        this.mesh = new LineSegments(wireframe, new LineBasicMaterial({ color }));
+        this.mesh.visible = false;
+        this.mesh.add(this.sound.audio);
+    }
+    async load(url) {
+        return this.sound.load(url);
     }
     play(x, y, z) {
         /*if (this.audio.isPlaying) {
           this.audio.stop()
         }*/
         this.mesh.position.set(x, y, z);
-        this.audio.play();
+        this.sound.play();
     }
 }
 
@@ -156,6 +170,8 @@ let scene;
 let renderer;
 let controller1, controller2;
 let beepSound;
+let goodSound;
+let badSound;
 let pointerResult;
 let arcLine;
 let room;
@@ -173,7 +189,7 @@ function init() {
     camera.position.set(0, 1.6, 3);
     audioListener = new AudioListener();
     camera.add(audioListener);
-    beepSound = new Sound(audioListener);
+    beepSound = new SoundSphere(audioListener, 0xaa3939);
     beepSound.load('assets/audio/echo.wav');
     scene.add(beepSound.mesh);
     const pointerSphere = new SphereBufferGeometry(0.25, 8, 6);
@@ -181,6 +197,12 @@ function init() {
     const pointerMaterial = new LineBasicMaterial({ color: 0x0ad0ff });
     pointerResult = new LineSegments(pointerWireframe, pointerMaterial);
     scene.add(pointerResult);
+    goodSound = new Sound(audioListener);
+    goodSound.load('assets/audio/correct.wav');
+    pointerResult.add(goodSound.audio);
+    badSound = new Sound(audioListener);
+    badSound.load('assets/audio/wrong.wav');
+    pointerResult.add(badSound.audio);
     const arcGeometry = new BufferGeometry();
     arcGeometry.setFromPoints(getPoints(domeRadius, 0, 2 * Math.PI));
     const arcMaterial = new LineBasicMaterial({ color: 0x00ff00 });
@@ -197,11 +219,17 @@ function init() {
                 break;
             }
             case 'display_result': {
-                const { pointerPosition, arcCurve, raycastSuccess } = data;
+                const { pointerPosition, arcCurve, raycastSuccess, goodGuess } = data;
                 pointerResult.position.copy(toThreeVector(pointerPosition));
                 pointerMaterial.color.setHex(raycastSuccess ? 0x0ad0ff : 0x2150ff);
                 arcGeometry.setFromPoints(getPoints(arcCurve.radius, arcCurve.startAngle, arcCurve.endAngle));
                 arcLine.position.y = arcCurve.height;
+                if (goodGuess) {
+                    goodSound.play();
+                }
+                else {
+                    badSound.play();
+                }
                 break;
             }
         }

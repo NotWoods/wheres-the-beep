@@ -1,5 +1,8 @@
 var domeRadius = 4;
 
+function timeout(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 class GameState {
     constructor(stageRadius) {
         this.stageRadius = stageRadius;
@@ -124,20 +127,20 @@ class GameLogic {
         const height = stageRadius / 2;
         const h = stageRadius - height;
         const rSquared = (2 * h * stageRadius) - (h ** 2);
+        const startAngle = pointSpherical.phi;
+        const endAngle = audio.phi;
+        const GOOD_GUESS_THRESHOLD = 1;
         return {
             type: 'display_result',
             pointerPosition: sphericalToCartesian(pointSpherical, stageRadius),
-            arc: [
-                sphericalToCartesian(pointSpherical, stageRadius),
-                sphericalToCartesian(audio, stageRadius),
-            ],
             raycastSuccess: Boolean(pointCartesian),
             arcCurve: {
                 height,
                 radius: Math.sqrt(rSquared),
-                startAngle: pointSpherical.phi,
-                endAngle: audio.phi,
-            }
+                startAngle,
+                endAngle,
+            },
+            goodGuess: Math.abs(endAngle - startAngle) < GOOD_GUESS_THRESHOLD
         };
     }
     newAudioPoint() {
@@ -153,8 +156,8 @@ class GameLogic {
 const game = new GameLogic(domeRadius);
 self.onmessage = async (evt) => {
     self.postMessage(game.handlePlayerClick(evt.data.hand));
-};
-setInterval(() => {
+    await timeout(2000);
     self.postMessage(game.newAudioPoint());
-}, 9000);
+};
+self.postMessage(game.newAudioPoint());
 //# sourceMappingURL=index.js.map
