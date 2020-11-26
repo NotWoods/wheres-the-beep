@@ -1,4 +1,4 @@
-import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, MeshLambertMaterial, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, CylinderBufferGeometry, Object3D, WireframeGeometry, LineSegments, CircleBufferGeometry, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
+import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, CylinderBufferGeometry, Object3D, AnimationMixer, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, BackSide, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
 import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
@@ -38,6 +38,9 @@ class WorkerThread {
         };
         console.log(message);
         this.worker.postMessage(message);
+    }
+    start() {
+        this.worker.postMessage({});
     }
 }
 
@@ -135,16 +138,94 @@ class Sphere {
     constructor(radius) {
         this.debug = false;
         this.visible = false;
-        const geometry = new SphereBufferGeometry(radius, 8, 6);
-        this.material = new MeshLambertMaterial({
-            color: 0x404444,
-            emissive: 0x898989,
+        const geometry = new SphereBufferGeometry(radius, 12, 10);
+        this.material = new MeshBasicMaterial({
+            color: 0x000000,
         });
         this.mesh = new Mesh(geometry, this.material);
     }
     render() {
         this.material.wireframe = this.debug;
         this.mesh.visible = this.visible || this.debug;
+    }
+}
+
+const ANIMATION_LENGTH = 1;
+class IndicatorCone {
+    constructor() {
+        this.startTime = -1;
+        this.targetLength = 1;
+        const coneGeometry = new CylinderBufferGeometry(0.005, 0.005, 1, 10, 1, false);
+        coneGeometry.rotateX(Math.PI / 2);
+        const coneMaterial = new MeshBasicMaterial({
+            color: 0xffffff,
+            depthTest: false
+        });
+        const coneInner = new Mesh(coneGeometry, coneMaterial);
+        const cone = new Object3D();
+        coneInner.position.set(0, 0, 0.5);
+        cone.add(coneInner);
+        cone.visible = false;
+        this.obj = cone;
+        this.mixer = new AnimationMixer(cone);
+    }
+    hide() {
+        this.obj.visible = false;
+        this.startTime = -1;
+    }
+    show(length, start, end) {
+        this.startTime = this.mixer.time;
+        this.targetLength = length;
+        this.obj.position.copy(start);
+        this.obj.lookAt(end);
+        this.obj.scale.z = 0.01;
+        this.obj.visible = true;
+    }
+    render() {
+        if (this.startTime < 0)
+            return;
+        if (this.mixer.time > this.startTime + ANIMATION_LENGTH) {
+            this.obj.scale.z = this.targetLength;
+        }
+        else {
+            const timePassed = this.mixer.time - this.startTime;
+            const percentagePassed = timePassed / ANIMATION_LENGTH;
+            this.obj.scale.z = this.targetLength * percentagePassed;
+        }
+    }
+}
+
+const ANIMATION_LENGTH$1 = 5;
+class Dome {
+    constructor(domeRadius) {
+        this.startTime = -1;
+        const sphereGeometry = new SphereBufferGeometry(domeRadius, 20, 20, 0, undefined, Math.PI / 2);
+        sphereGeometry.rotateX(Math.PI);
+        this.material = new MeshBasicMaterial({
+            color: 0x111111,
+            wireframe: true,
+            transparent: true,
+        });
+        const dome = new Mesh(sphereGeometry, this.material);
+        this.obj = dome;
+        this.mixer = new AnimationMixer(dome);
+    }
+    fade() {
+        if (this.startTime < 0) {
+            this.startTime = this.mixer.time;
+        }
+    }
+    render() {
+        if (this.startTime < 0)
+            return;
+        if (this.mixer.time > this.startTime + ANIMATION_LENGTH$1) {
+            this.material.opacity = 0;
+        }
+        else {
+            const timePassed = this.mixer.time - this.startTime;
+            const percentagePassed = timePassed / ANIMATION_LENGTH$1;
+            this.material.opacity = 1 - percentagePassed;
+        }
     }
 }
 
@@ -155,8 +236,11 @@ let renderer;
 let controller1, controller2;
 let beepMesh, pointerResult;
 let raycaster;
+let cone;
+let bgm;
+let dome;
 let room;
-// let count = 0;
+let worker;
 const radius = 0.08;
 let normal = new Vector3();
 const relativeVelocity = new Vector3();
@@ -165,47 +249,55 @@ init();
 animate();
 function init() {
     scene = new Scene();
-    scene.background = new Color(0x040611);
+    scene.background = new Color(0x000000);
     camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 7);
     camera.position.set(0, 1.6, 3);
     audioListener = new AudioListener();
     camera.add(audioListener);
     raycaster = new Raycaster();
     raycaster.camera = camera;
+    dome = new Dome(domeRadius);
+    scene.add(dome.obj);
+    cone = new IndicatorCone();
+    scene.add(cone.obj);
     const beepSound = new Sound(audioListener);
     beepSound.load('assets/audio/echo.wav');
-    beepMesh = new Sphere(0.1);
+    beepMesh = new Sphere(0.08);
     beepMesh.mesh.add(beepSound.audio);
+    const beepOutline = new Mesh(new SphereBufferGeometry(0.08, 12, 10), new MeshBasicMaterial({ color: 0xffffff, side: BackSide }));
+    beepOutline.scale.multiplyScalar(1.1);
+    beepOutline.visible = false;
+    scene.add(beepOutline);
     scene.add(beepMesh.mesh);
-    pointerResult = new Sphere(0.15);
-    scene.add(pointerResult.mesh);
+    const pointerResultRadius = 0.08;
+    pointerResult = new Sphere(pointerResultRadius);
     const goodSound = new Sound(audioListener);
     goodSound.load('assets/audio/correct.wav');
     pointerResult.mesh.add(goodSound.audio);
     const badSound = new Sound(audioListener);
-    badSound.load('assets/audio/wrong.wav');
+    badSound.load('assets/audio/incorrect.wav');
     pointerResult.mesh.add(badSound.audio);
-    const coneGeometry = new CylinderBufferGeometry(0.02, 0.045, 1, 10, 1, true);
-    coneGeometry.rotateX(Math.PI / 2);
-    const coneMaterial = new MeshLambertMaterial({
-        color: 0x404444,
-        emissive: 0x898989,
+    const outlineMaterial = new MeshBasicMaterial({
+        color: 0xf76a6f,
+        side: BackSide,
     });
-    const coneInner = new Mesh(coneGeometry, coneMaterial);
-    const cone = new Object3D();
-    coneInner.position.set(0, 0, 0.5);
-    cone.add(coneInner);
-    cone.visible = false;
-    scene.add(cone);
-    const worker = new WorkerThread(raycaster);
+    const pointerResultOutline = new Mesh(new SphereBufferGeometry(pointerResultRadius, 12, 10), outlineMaterial);
+    pointerResultOutline.scale.multiplyScalar(1.1);
+    pointerResultOutline.visible = false;
+    scene.add(pointerResultOutline);
+    scene.add(pointerResult.mesh);
+    worker = new WorkerThread(raycaster);
     worker.onMessage = (data) => {
         switch (data.type) {
             case 'play_audio': {
                 const { audioPosition } = data;
                 beepMesh.mesh.position.copy(toThreeVector(audioPosition));
+                beepOutline.position.copy(beepMesh.mesh.position);
                 beepSound.play();
-                cone.visible = false;
+                cone.hide();
                 beepMesh.visible = false;
+                beepOutline.visible = false;
+                pointerResultOutline.visible = false;
                 pointerResult.visible = false;
                 break;
             }
@@ -213,14 +305,15 @@ function init() {
                 const { pointerPosition, line, goodGuess } = data;
                 if (pointerPosition) {
                     pointerResult.mesh.position.copy(toThreeVector(pointerPosition));
+                    pointerResultOutline.position.copy(pointerResult.mesh.position);
+                    pointerResultOutline.visible = true;
                     pointerResult.visible = true;
                     beepMesh.visible = true;
+                    beepOutline.visible = true;
                     if (line) {
-                        cone.scale.z = line.length;
-                        cone.position.copy(toThreeVector(pointerPosition));
-                        cone.lookAt(toThreeVector(line.end));
-                        cone.visible = true;
+                        cone.show(line.length, toThreeVector(pointerPosition), toThreeVector(line.end));
                     }
+                    outlineMaterial.color.setHex(goodGuess ? 0x6af797 : 0xf76a6f);
                 }
                 if (goodGuess) {
                     goodSound.play();
@@ -228,20 +321,20 @@ function init() {
                 else {
                     badSound.play();
                 }
+                dome.fade();
                 break;
             }
         }
     };
-    const sphereGeometry = new SphereBufferGeometry(domeRadius, 20, 20, 0, undefined, Math.PI / 2);
-    sphereGeometry.rotateX(Math.PI);
-    const wireframe = new WireframeGeometry(sphereGeometry);
-    const dome = new LineSegments(wireframe, new LineBasicMaterial({ color: 0x010207 }));
-    scene.add(dome);
+    bgm = document.getElementById('bgm');
+    const bgmPanner = new PositionalAudio(audioListener);
+    bgmPanner.setMediaElementSource(bgm);
     const circle = new CircleBufferGeometry(domeRadius, 20);
     const floor = new Mesh(circle, new MeshLambertMaterial({
-        color: 0x000001,
+        color: 0x000000,
     }));
     floor.geometry.rotateX(-Math.PI / 2);
+    floor.add(bgmPanner);
     scene.add(floor);
     let roomBox = new Group();
     scene.add(roomBox);
@@ -267,7 +360,7 @@ function init() {
     scene.add(controller1.grip);
     scene.add(controller2.grip);
     function onSelect() {
-        worker.sendPlayerClick(this, [dome, floor]);
+        worker.sendPlayerClick(this, [dome.obj, floor]);
     }
     controller1.onselect = onSelect;
     controller2.onselect = onSelect;
@@ -283,15 +376,31 @@ function onWindowResize() {
 function animate() {
     renderer.setAnimationLoop(render);
 }
+let xrSessionStarted = false;
 function render() {
+    const delta = clock.getDelta(); // slow down simulation
+    cone.mixer.update(delta);
+    dome.mixer.update(delta);
+    const xrSession = renderer.xr.getSession() != null;
+    if (xrSession !== xrSessionStarted) {
+        xrSessionStarted = xrSession;
+        if (xrSession) {
+            bgm.play();
+            worker.start();
+        }
+        else {
+            bgm.pause();
+        }
+    }
     const debug = controller1.isSqueezing || controller2.isSqueezing;
     beepMesh.debug = debug;
     beepMesh.render();
     pointerResult.render();
     controller1.render();
     controller2.render();
+    cone.render();
+    dome.render();
     //
-    const delta = clock.getDelta() * 0.8; // slow down simulation
     const range = 3 - radius;
     for (let i = 0; i < room.children.length; i++) {
         const object = room.children[i];
