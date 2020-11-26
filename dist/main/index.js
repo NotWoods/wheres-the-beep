@@ -1,4 +1,4 @@
-import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, CylinderBufferGeometry, Object3D, AnimationMixer, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, BackSide, CircleBufferGeometry, MeshLambertMaterial, Group, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding, MathUtils } from 'https://threejs.org/build/three.module.js';
+import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, CylinderBufferGeometry, Object3D, AnimationMixer, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, BackSide, CircleBufferGeometry, MeshLambertMaterial, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding } from 'https://threejs.org/build/three.module.js';
 import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
@@ -239,11 +239,7 @@ let raycaster;
 let cone;
 let bgm;
 let dome;
-let room;
 let worker;
-const radius = 0.08;
-let normal = new Vector3();
-const relativeVelocity = new Vector3();
 const clock = new Clock();
 init();
 animate();
@@ -336,9 +332,6 @@ function init() {
     floor.geometry.rotateX(-Math.PI / 2);
     floor.add(bgmPanner);
     scene.add(floor);
-    let roomBox = new Group();
-    scene.add(roomBox);
-    room = roomBox;
     scene.add(new HemisphereLight(0x606060, 0x404040));
     const light = new DirectionalLight(0xffffff);
     light.position.set(1, 1, 1).normalize();
@@ -401,46 +394,6 @@ function render() {
     cone.render();
     dome.render();
     //
-    const range = 3 - radius;
-    for (let i = 0; i < room.children.length; i++) {
-        const object = room.children[i];
-        object.position.x += object.userData.velocity.x * delta;
-        object.position.y += object.userData.velocity.y * delta;
-        object.position.z += object.userData.velocity.z * delta;
-        // keep objects inside room
-        if (object.position.x < -range || object.position.x > range) {
-            object.position.x = MathUtils.clamp(object.position.x, -range, range);
-            object.userData.velocity.x = -object.userData.velocity.x;
-        }
-        if (object.position.y < radius || object.position.y > 6) {
-            object.position.y = Math.max(object.position.y, radius);
-            object.userData.velocity.x *= 0.98;
-            object.userData.velocity.y = -object.userData.velocity.y * 0.8;
-            object.userData.velocity.z *= 0.98;
-        }
-        if (object.position.z < -range || object.position.z > range) {
-            object.position.z = MathUtils.clamp(object.position.z, -range, range);
-            object.userData.velocity.z = -object.userData.velocity.z;
-        }
-        for (let j = i + 1; j < room.children.length; j++) {
-            const object2 = room.children[j];
-            normal.copy(object.position).sub(object2.position);
-            const distance = normal.length();
-            if (distance < 2 * radius) {
-                normal.multiplyScalar(0.5 * distance - radius);
-                object.position.sub(normal);
-                object2.position.add(normal);
-                normal.normalize();
-                relativeVelocity
-                    .copy(object.userData.velocity)
-                    .sub(object2.userData.velocity);
-                normal = normal.multiplyScalar(relativeVelocity.dot(normal));
-                object.userData.velocity.sub(normal);
-                object2.userData.velocity.add(normal);
-            }
-        }
-        object.userData.velocity.y -= 9.8 * delta;
-    }
     renderer.render(scene, camera);
 }
 //# sourceMappingURL=index.js.map
