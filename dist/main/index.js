@@ -1,4 +1,4 @@
-import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, CylinderBufferGeometry, Object3D, AnimationMixer, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, BackSide, CircleBufferGeometry, MeshLambertMaterial, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding } from 'https://threejs.org/build/three.module.js';
+import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, BackSide, CylinderBufferGeometry, Object3D, AnimationMixer, FontLoader, FrontSide, Group, TextGeometry, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, CircleBufferGeometry, MeshLambertMaterial, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding } from 'https://threejs.org/build/three.module.js';
 import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
@@ -134,19 +134,52 @@ class Sound {
         this.audio.play();
     }
 }
+
 class Sphere {
-    constructor(radius) {
-        this.debug = false;
-        this.visible = false;
+    constructor(radius, outlineColor, transparent = false) {
+        this._debug = false;
+        this._visible = false;
         const geometry = new SphereBufferGeometry(radius, 12, 10);
+        this.outlineMaterial = new MeshBasicMaterial({
+            color: outlineColor,
+            side: BackSide,
+            transparent,
+        });
+        const beepOutline = new Mesh(new SphereBufferGeometry(0.08, 12, 10), this.outlineMaterial);
+        beepOutline.scale.multiplyScalar(1.1);
+        beepOutline.visible = false;
+        this.outlineMesh = beepOutline;
         this.material = new MeshBasicMaterial({
             color: 0x000000,
+            transparent,
         });
         this.mesh = new Mesh(geometry, this.material);
+        this.mesh.visible = false;
+    }
+    addToGroup(group) {
+        group.add(this.outlineMesh);
+        group.add(this.mesh);
+    }
+    setPosition(position) {
+        this.mesh.position.copy(position);
+        this.outlineMesh.position.copy(position);
+    }
+    set debug(value) {
+        this._debug = value;
+        this.material.wireframe = value;
+        this.render();
+    }
+    set visible(value) {
+        this._visible = value;
+        this.render();
+    }
+    set opacity(value) {
+        this.outlineMaterial.opacity = value;
+        this.material.opacity = value;
     }
     render() {
-        this.material.wireframe = this.debug;
-        this.mesh.visible = this.visible || this.debug;
+        this.outlineMesh.visible = this._visible || this._debug;
+        this.mesh.visible = this._visible || this._debug;
     }
 }
 
@@ -159,13 +192,16 @@ class IndicatorCone {
         coneGeometry.rotateX(Math.PI / 2);
         const coneMaterial = new MeshBasicMaterial({
             color: 0xffffff,
-            depthTest: false
+            depthTest: false,
         });
         const coneInner = new Mesh(coneGeometry, coneMaterial);
-        const cone = new Object3D();
         coneInner.position.set(0, 0, 0.5);
-        cone.add(coneInner);
+        const scaled = new Object3D();
+        scaled.add(coneInner);
+        const cone = new Object3D();
+        cone.add(scaled);
         cone.visible = false;
+        this.scaled = scaled;
         this.obj = cone;
         this.mixer = new AnimationMixer(cone);
     }
@@ -173,24 +209,27 @@ class IndicatorCone {
         this.obj.visible = false;
         this.startTime = -1;
     }
+    set length(value) {
+        this.scaled.scale.z = value;
+    }
     show(length, start, end) {
         this.startTime = this.mixer.time;
         this.targetLength = length;
         this.obj.position.copy(start);
         this.obj.lookAt(end);
-        this.obj.scale.z = 0.01;
+        this.length = 0.01;
         this.obj.visible = true;
     }
     render() {
         if (this.startTime < 0)
             return;
         if (this.mixer.time > this.startTime + ANIMATION_LENGTH) {
-            this.obj.scale.z = this.targetLength;
+            this.length = this.targetLength;
         }
         else {
             const timePassed = this.mixer.time - this.startTime;
             const percentagePassed = timePassed / ANIMATION_LENGTH;
-            this.obj.scale.z = this.targetLength * percentagePassed;
+            this.length = this.targetLength * percentagePassed;
         }
     }
 }
@@ -229,6 +268,35 @@ class Dome {
     }
 }
 
+const loader = new FontLoader();
+class Score {
+    constructor() {
+        this.material = new MeshBasicMaterial({ color: 0x111111, side: FrontSide });
+        this.ready = this.load();
+        this.group = new Group();
+        this.group.position.y = 0.01;
+        this.group.rotateX(-Math.PI / 2);
+    }
+    async load() {
+        this.font = await loader.loadAsync('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json');
+    }
+    async setScore(value) {
+        await this.ready;
+        const geometry = new TextGeometry(value, {
+            font: this.font,
+            size: 0.5,
+            height: 0,
+            curveSegments: 12,
+        });
+        const mesh = new Mesh(geometry, this.material);
+        if (this.mesh) {
+            this.group.remove(this.mesh);
+        }
+        this.group.add(mesh);
+        this.mesh = mesh;
+    }
+}
+
 let camera;
 let audioListener;
 let scene;
@@ -258,58 +326,43 @@ function init() {
     scene.add(cone.obj);
     const beepSound = new Sound(audioListener);
     beepSound.load('assets/audio/echo.wav');
-    beepMesh = new Sphere(0.08);
+    beepMesh = new Sphere(0.08, 0xffffff, true);
     beepMesh.mesh.add(beepSound.audio);
-    const beepOutline = new Mesh(new SphereBufferGeometry(0.08, 12, 10), new MeshBasicMaterial({ color: 0xffffff, side: BackSide }));
-    beepOutline.scale.multiplyScalar(1.1);
-    beepOutline.visible = false;
-    scene.add(beepOutline);
-    scene.add(beepMesh.mesh);
-    const pointerResultRadius = 0.08;
-    pointerResult = new Sphere(pointerResultRadius);
+    beepMesh.addToGroup(scene);
+    pointerResult = new Sphere(0.08, 0xf76a6f);
     const goodSound = new Sound(audioListener);
     goodSound.load('assets/audio/correct.wav');
     pointerResult.mesh.add(goodSound.audio);
     const badSound = new Sound(audioListener);
     badSound.load('assets/audio/incorrect.wav');
     pointerResult.mesh.add(badSound.audio);
-    const outlineMaterial = new MeshBasicMaterial({
-        color: 0xf76a6f,
-        side: BackSide,
-    });
-    const pointerResultOutline = new Mesh(new SphereBufferGeometry(pointerResultRadius, 12, 10), outlineMaterial);
-    pointerResultOutline.scale.multiplyScalar(1.1);
-    pointerResultOutline.visible = false;
-    scene.add(pointerResultOutline);
-    scene.add(pointerResult.mesh);
+    pointerResult.addToGroup(scene);
+    const score = new Score();
+    score.setScore('0');
+    //
     worker = new WorkerThread(raycaster);
     worker.onMessage = (data) => {
         switch (data.type) {
             case 'play_audio': {
                 const { audioPosition } = data;
-                beepMesh.mesh.position.copy(toThreeVector(audioPosition));
-                beepOutline.position.copy(beepMesh.mesh.position);
+                beepMesh.setPosition(toThreeVector(audioPosition));
                 beepSound.play();
                 cone.hide();
                 beepMesh.visible = false;
-                beepOutline.visible = false;
-                pointerResultOutline.visible = false;
                 pointerResult.visible = false;
                 break;
             }
             case 'display_result': {
                 const { pointerPosition, line, goodGuess } = data;
+                score.setScore(data.score.toString());
                 if (pointerPosition) {
-                    pointerResult.mesh.position.copy(toThreeVector(pointerPosition));
-                    pointerResultOutline.position.copy(pointerResult.mesh.position);
-                    pointerResultOutline.visible = true;
+                    pointerResult.setPosition(toThreeVector(pointerPosition));
                     pointerResult.visible = true;
                     beepMesh.visible = true;
-                    beepOutline.visible = true;
                     if (line) {
                         cone.show(line.length, toThreeVector(pointerPosition), toThreeVector(line.end));
                     }
-                    outlineMaterial.color.setHex(goodGuess ? 0x6af797 : 0xf76a6f);
+                    pointerResult.outlineMaterial.color.setHex(goodGuess ? 0x6af797 : 0xf76a6f);
                 }
                 if (goodGuess) {
                     goodSound.play();
@@ -331,6 +384,7 @@ function init() {
     }));
     floor.geometry.rotateX(-Math.PI / 2);
     floor.add(bgmPanner);
+    floor.add(score.group);
     scene.add(floor);
     scene.add(new HemisphereLight(0x606060, 0x404040));
     const light = new DirectionalLight(0xffffff);
@@ -387,8 +441,6 @@ function render() {
     }
     const debug = controller1.isSqueezing || controller2.isSqueezing;
     beepMesh.debug = debug;
-    beepMesh.render();
-    pointerResult.render();
     controller1.render();
     controller2.render();
     cone.render();
