@@ -1,4 +1,4 @@
-import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, BackSide, CylinderBufferGeometry, Object3D, AnimationMixer, FontLoader, FrontSide, Group, TextGeometry, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, CircleBufferGeometry, MeshLambertMaterial, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding } from 'https://threejs.org/build/three.module.js';
+import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, BackSide, CylinderBufferGeometry, Object3D, AnimationMixer, FontLoader, FrontSide, Group, TextGeometry, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, NumberKeyframeTrack, AnimationClip, LoopOnce, CircleBufferGeometry, MeshLambertMaterial, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding } from 'https://threejs.org/build/three.module.js';
 import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
@@ -186,6 +186,7 @@ class Sphere {
 const ANIMATION_LENGTH = 1;
 class IndicatorCone {
     constructor() {
+        this.endpoints = [];
         this.startTime = -1;
         this.targetLength = 1;
         const coneGeometry = new CylinderBufferGeometry(0.005, 0.005, 1, 10, 1, false);
@@ -219,25 +220,32 @@ class IndicatorCone {
         this.obj.lookAt(end);
         this.length = 0.01;
         this.obj.visible = true;
+        for (const endpoint of this.endpoints) {
+            endpoint.opacity = 0;
+        }
     }
     render() {
         if (this.startTime < 0)
             return;
         if (this.mixer.time > this.startTime + ANIMATION_LENGTH) {
             this.length = this.targetLength;
+            for (const endpoint of this.endpoints) {
+                endpoint.opacity = 1;
+            }
         }
         else {
             const timePassed = this.mixer.time - this.startTime;
             const percentagePassed = timePassed / ANIMATION_LENGTH;
             this.length = this.targetLength * percentagePassed;
+            for (const endpoint of this.endpoints) {
+                endpoint.opacity = percentagePassed;
+            }
         }
     }
 }
 
-const ANIMATION_LENGTH$1 = 5;
 class Dome {
     constructor(domeRadius) {
-        this.startTime = -1;
         const sphereGeometry = new SphereBufferGeometry(domeRadius, 20, 20, 0, undefined, Math.PI / 2);
         sphereGeometry.rotateX(Math.PI);
         this.material = new MeshBasicMaterial({
@@ -248,23 +256,6 @@ class Dome {
         const dome = new Mesh(sphereGeometry, this.material);
         this.obj = dome;
         this.mixer = new AnimationMixer(dome);
-    }
-    fade() {
-        if (this.startTime < 0) {
-            this.startTime = this.mixer.time;
-        }
-    }
-    render() {
-        if (this.startTime < 0)
-            return;
-        if (this.mixer.time > this.startTime + ANIMATION_LENGTH$1) {
-            this.material.opacity = 0;
-        }
-        else {
-            const timePassed = this.mixer.time - this.startTime;
-            const percentagePassed = timePassed / ANIMATION_LENGTH$1;
-            this.material.opacity = 1 - percentagePassed;
-        }
     }
 }
 
@@ -309,6 +300,7 @@ let bgm;
 let dome;
 let worker;
 const clock = new Clock();
+const mixers = [];
 init();
 animate();
 function init() {
@@ -324,11 +316,13 @@ function init() {
     scene.add(dome.obj);
     cone = new IndicatorCone();
     scene.add(cone.obj);
+    mixers.push(cone.mixer);
     const beepSound = new Sound(audioListener);
     beepSound.load('assets/audio/echo.wav');
     beepMesh = new Sphere(0.08, 0xffffff, true);
     beepMesh.mesh.add(beepSound.audio);
     beepMesh.addToGroup(scene);
+    cone.endpoints.push(beepMesh.material, beepMesh.outlineMaterial);
     pointerResult = new Sphere(0.08, 0xf76a6f);
     const goodSound = new Sound(audioListener);
     goodSound.load('assets/audio/correct.wav');
@@ -339,6 +333,16 @@ function init() {
     pointerResult.addToGroup(scene);
     const score = new Score();
     score.setScore('0');
+    //
+    const fadeOutKF = new NumberKeyframeTrack('.material.opacity', [0, 5], [1, 0]);
+    const domeMixer = new AnimationMixer(dome.obj);
+    mixers.push(domeMixer);
+    const fadeOutAction = domeMixer.clipAction(new AnimationClip('FadeOutDome', 5, [fadeOutKF]));
+    fadeOutAction.clampWhenFinished = true;
+    fadeOutAction.loop = LoopOnce;
+    domeMixer.addEventListener('finished', () => {
+        dome.obj.visible = false;
+    });
     //
     worker = new WorkerThread(raycaster);
     worker.onMessage = (data) => {
@@ -370,7 +374,7 @@ function init() {
                 else {
                     badSound.play();
                 }
-                dome.fade();
+                fadeOutAction.play();
                 break;
             }
         }
@@ -426,8 +430,9 @@ function animate() {
 let xrSessionStarted = false;
 function render() {
     const delta = clock.getDelta(); // slow down simulation
-    cone.mixer.update(delta);
-    dome.mixer.update(delta);
+    for (const mixer of mixers) {
+        mixer.update(delta);
+    }
     const xrSession = renderer.xr.getSession() != null;
     if (xrSession !== xrSessionStarted) {
         xrSessionStarted = xrSession;
@@ -444,7 +449,6 @@ function render() {
     controller1.render();
     controller2.render();
     cone.render();
-    dome.render();
     //
     renderer.render(scene, camera);
 }
