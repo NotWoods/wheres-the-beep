@@ -1,5 +1,37 @@
 var domeRadius = 4;
 
+function timeout(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+class GameState {
+    constructor(stageRadius) {
+        this.stageRadius = stageRadius;
+        this.completedLevels = [];
+    }
+    startLevel(audioPosition, now = Date.now()) {
+        if (this.currentLevel) {
+            this.completeLevel(undefined, now);
+        }
+        const level = {
+            audio: audioPosition,
+            startTime: now,
+        };
+        this.currentLevel = level;
+        return level;
+    }
+    completeLevel(pointerPosition, now = Date.now()) {
+        if (!this.currentLevel) {
+            throw new Error('Cannot complete level before it starts');
+        }
+        const level = this.currentLevel;
+        level.pointer = pointerPosition;
+        level.endTime = now;
+        this.completedLevels.push(level);
+        this.currentLevel = undefined;
+        return level;
+    }
+}
+
 /**
  * Function to generate random number
  * https://www.geeksforgeeks.org/how-to-generate-random-number-in-given-range-using-javascript/
@@ -42,62 +74,10 @@ function sphericalToCartesian(point, sphereRadius) {
     return { x, y, z };
 }
 
-function timeout(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-const GOOD_SCORE_THRESHOLD = 1.5 ** 2;
-class GameState {
-    constructor(stageRadius) {
-        this.stageRadius = stageRadius;
-        this.completedLevels = [];
-        this.lastLostLevelIndex = -1;
-    }
-    startLevel(audioPosition, now = Date.now()) {
-        if (this.currentLevel) {
-            this.completeLevel(undefined, now);
-        }
-        const level = {
-            audio: audioPosition,
-            startTime: now,
-        };
-        this.currentLevel = level;
-        return level;
-    }
-    completeLevel(pointerPosition, now = Date.now()) {
-        if (!this.currentLevel) {
-            throw new Error('Cannot complete level before it starts');
-        }
-        const level = this.currentLevel;
-        level.pointer = pointerPosition;
-        level.score = pointerPosition
-            ? this.score(level.audio, pointerPosition)
-            : -1;
-        level.goodScore = this.goodScore(level.score);
-        level.endTime = now;
-        this.completedLevels.push(level);
-        this.currentLevel = undefined;
-        if (!level.goodScore) {
-            this.lastLostLevelIndex = this.completedLevels.length - 1;
-        }
-        return level;
-    }
-    totalScore() {
-        if (this.lastLostLevelIndex === -1)
-            return this.completedLevels.length;
-        return this.completedLevels.length - this.lastLostLevelIndex - 1;
-    }
-    goodScore(score) {
-        return score >= 0 && score < GOOD_SCORE_THRESHOLD;
-    }
-    score(audioPos, pointerPos) {
-        const audio = sphericalToCartesian(audioPos, this.stageRadius);
-        const pointer = sphericalToCartesian(pointerPos, this.stageRadius);
-        return distanceSquared(audio, pointer);
-    }
-}
-
+const GOOD_SCORE_THRESHOLD = 2 ** 2;
 class GameLogic {
     constructor(stageRadius) {
+        this.score = 0;
         this.state = new GameState(stageRadius);
     }
     randomAudioPoint() {
@@ -113,27 +93,36 @@ class GameLogic {
         const { stageRadius } = this.state;
         if (!pointerPosition) {
             this.state.completeLevel(undefined);
+            this.score = 0;
             return {
                 type: 'display_result',
                 pointerPosition: undefined,
-                score: this.state.totalScore(),
+                score: this.score,
                 goodGuess: false,
             };
         }
         // go from raycast point to radian lat lng
         const pointSpherical = cartesianToSpherical(pointerPosition);
         // complete level
-        const { audio, score } = this.state.completeLevel(pointSpherical);
+        const { audio } = this.state.completeLevel(pointSpherical);
         const end = sphericalToCartesian(audio, stageRadius);
+        const distSq = distanceSquared(pointerPosition, end);
+        const goodGuess = distSq <= GOOD_SCORE_THRESHOLD;
+        if (goodGuess) {
+            this.score++;
+        }
+        else {
+            this.score = 0;
+        }
         return {
             type: 'display_result',
             pointerPosition,
             line: {
-                length: Math.sqrt(score),
+                length: Math.sqrt(distSq),
                 end,
             },
-            score: this.state.totalScore(),
-            goodGuess: this.state.goodScore(score),
+            score: this.score,
+            goodGuess,
         };
     }
     newAudioPoint() {

@@ -151,7 +151,6 @@ class Sphere {
         this.outlineMesh = beepOutline;
         this.material = new MeshBasicMaterial({
             color: 0x000000,
-            transparent,
         });
         this.mesh = new Mesh(geometry, this.material);
         this.mesh.visible = false;
@@ -175,7 +174,6 @@ class Sphere {
     }
     set opacity(value) {
         this.outlineMaterial.opacity = value;
-        this.material.opacity = value;
     }
     render() {
         this.outlineMesh.visible = this._visible || this._debug;
