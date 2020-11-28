@@ -85,3 +85,56 @@ select {
   margin-top: 20px;
   padding: 10px;
 }
+
+.vr-button {
+  position: absolute;
+  bottom: 20px;
+  font: normal 13px sans-serif;
+  opacity: 0.5;
+  outline: none;
+  z-index: 999;
+}
+.vr-button--available {
+  cursor: pointer;
+  left: calc(50% - 50px);
+  width: 100px;
+}
+.vr-button--available:disabled {
+  cursor: auto;
+  left: calc(50% - 75px);
+  width: 150px;
+}
+.vr-button--available:not(:disabled):hover {
+  opacity: 1;
+}
+.vr-button--not-available {
+  left: calc(50% - 90px);
+  width: 180px;
+  text-decoration: none;
+}
+
+.dialog-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialog {
+  margin: auto;
+  max-width: 75vw;
+  font-size: 1.5rem;
+  height: auto;
+}
+.dialog, .vr-button {
+  padding: 12px;
+  border: 1px solid #fff;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.1);
+  color: #fff;
+  text-align: center;
+}

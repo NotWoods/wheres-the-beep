@@ -74,7 +74,7 @@ function sphericalToCartesian(point, sphereRadius) {
     return { x, y, z };
 }
 
-const GOOD_SCORE_THRESHOLD = 2 ** 2;
+const GOOD_SCORE_THRESHOLD = 2.5 ** 2;
 class GameLogic {
     constructor(stageRadius) {
         this.score = 0;
@@ -131,23 +131,30 @@ class GameLogic {
         return {
             type: 'play_audio',
             audioPosition: sphericalToCartesian(level.audio, this.state.stageRadius),
+            maxTime: 15,
         };
     }
 }
 
 const game = new GameLogic(domeRadius);
-let started = false;
 self.onmessage = async (evt) => {
-    const { hand } = evt.data;
-    if (started || hand) {
-        self.postMessage(game.handlePlayerClick(evt.data.hand));
-        await timeout(4000);
+    switch (evt.data.type) {
+        case 'start_game':
+            await timeout(1000);
+            self.postMessage(game.newAudioPoint());
+            break;
+        case 'player_click': {
+            const { hand } = evt.data;
+            self.postMessage(game.handlePlayerClick(hand));
+            await timeout(4000);
+            self.postMessage(game.newAudioPoint());
+            break;
+        }
+        case 'out_of_time':
+            self.postMessage(game.handlePlayerClick(undefined));
+            await timeout(4000);
+            self.postMessage(game.newAudioPoint());
+            break;
     }
-    else {
-        started = true;
-        await timeout(1000);
-    }
-    self.postMessage(game.newAudioPoint());
 };
-// self.postMessage(game.newAudioPoint());
 //# sourceMappingURL=index.js.map

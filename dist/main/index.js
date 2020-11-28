@@ -1,5 +1,4 @@
-import { Ray, Matrix4, Vector3, RingBufferGeometry, MeshBasicMaterial, Mesh, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, AudioLoader, PositionalAudio, SphereBufferGeometry, BackSide, CylinderBufferGeometry, Object3D, AnimationMixer, FontLoader, FrontSide, Group, TextGeometry, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, NumberKeyframeTrack, AnimationClip, LoopOnce, CircleBufferGeometry, MeshLambertMaterial, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding } from 'https://threejs.org/build/three.module.js';
-import { VRButton } from 'https://threejs.org/examples/jsm/webxr/VRButton.js';
+import { Ray, Matrix4, Vector3, CylinderBufferGeometry, MeshBasicMaterial, Mesh, Object3D, AnimationMixer, RingBufferGeometry, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, AdditiveBlending, Line, SphereBufferGeometry, FontLoader, FrontSide, Group, TextGeometry, AudioLoader, PositionalAudio, BackSide, EventDispatcher, EllipseCurve, Clock, Scene, Color, PerspectiveCamera, AudioListener, Raycaster, NumberKeyframeTrack, AnimationClip, LoopOnce, CircleBufferGeometry, MeshLambertMaterial, HemisphereLight, DirectionalLight, WebGLRenderer, sRGBEncoding } from 'https://threejs.org/build/three.module.js';
 import { XRControllerModelFactory } from 'https://threejs.org/examples/jsm/webxr/XRControllerModelFactory.js';
 
 var workerUrl = "dist/worker/index.js";
@@ -34,17 +33,86 @@ class WorkerThread {
         this.raycaster.set(ray.origin, ray.direction);
         const [{ point }] = this.raycaster.intersectObjects(dome);
         const message = {
+            type: 'player_click',
             hand: fromThreeVector(point),
         };
         console.log(message);
         this.worker.postMessage(message);
     }
+    sendOutOfTime() {
+        const message = { type: 'out_of_time' };
+        console.log(message);
+        this.worker.postMessage(message);
+    }
     start() {
-        this.worker.postMessage({});
+        const message = { type: 'start_game' };
+        console.log(message);
+        this.worker.postMessage(message);
     }
 }
 
 var domeRadius = 4;
+
+const ANIMATION_LENGTH = 1;
+class IndicatorCone {
+    constructor() {
+        this.endpoints = [];
+        this.startTime = -1;
+        this.targetLength = 1;
+        const coneGeometry = new CylinderBufferGeometry(0.005, 0.005, 1, 10, 1, false);
+        coneGeometry.rotateX(Math.PI / 2);
+        const coneMaterial = new MeshBasicMaterial({
+            color: 0xffffff,
+            depthTest: false,
+        });
+        const coneInner = new Mesh(coneGeometry, coneMaterial);
+        coneInner.position.set(0, 0, 0.5);
+        const scaled = new Object3D();
+        scaled.add(coneInner);
+        const cone = new Object3D();
+        cone.add(scaled);
+        cone.visible = false;
+        this.scaled = scaled;
+        this.obj = cone;
+        this.mixer = new AnimationMixer(cone);
+    }
+    hide() {
+        this.obj.visible = false;
+        this.startTime = -1;
+    }
+    set length(value) {
+        this.scaled.scale.z = value;
+    }
+    show(length, start, end) {
+        this.startTime = this.mixer.time;
+        this.targetLength = length;
+        this.obj.position.copy(start);
+        this.obj.lookAt(end);
+        this.length = 0.01;
+        this.obj.visible = true;
+        for (const endpoint of this.endpoints) {
+            endpoint.opacity = 0;
+        }
+    }
+    render() {
+        if (this.startTime < 0)
+            return;
+        if (this.mixer.time > this.startTime + ANIMATION_LENGTH) {
+            this.length = this.targetLength;
+            for (const endpoint of this.endpoints) {
+                endpoint.opacity = 1;
+            }
+        }
+        else {
+            const timePassed = this.mixer.time - this.startTime;
+            const percentagePassed = timePassed / ANIMATION_LENGTH;
+            this.length = this.targetLength * percentagePassed;
+            for (const endpoint of this.endpoints) {
+                endpoint.opacity = percentagePassed;
+            }
+        }
+    }
+}
 
 // The XRControllerModelFactory will automatically fetch controller models
 // that match what the user is holding as closely as possible. The models
@@ -117,6 +185,53 @@ class ControllerManager {
     render() { }
 }
 
+class Dome {
+    constructor(domeRadius) {
+        const sphereGeometry = new SphereBufferGeometry(domeRadius, 20, 20, 0, undefined, Math.PI / 2);
+        sphereGeometry.rotateX(Math.PI);
+        this.material = new MeshBasicMaterial({
+            color: 0x111111,
+            wireframe: true,
+            transparent: true,
+        });
+        const dome = new Mesh(sphereGeometry, this.material);
+        this.obj = dome;
+        this.mixer = new AnimationMixer(dome);
+    }
+}
+
+const loader = new FontLoader();
+class Score {
+    constructor() {
+        this.material = new MeshBasicMaterial({
+            color: 0x111111,
+            side: FrontSide,
+        });
+        this.ready = this.load();
+        this.group = new Group();
+        this.group.position.y = 0.01;
+        this.group.rotateX(-Math.PI / 2);
+    }
+    async load() {
+        this.font = await loader.loadAsync('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json');
+    }
+    async setScore(value) {
+        await this.ready;
+        const geometry = new TextGeometry(value, {
+            font: this.font,
+            size: 0.5,
+            height: 0,
+            curveSegments: 12,
+        });
+        const mesh = new Mesh(geometry, this.material);
+        if (this.mesh) {
+            this.group.remove(this.mesh);
+        }
+        this.group.add(mesh);
+        this.mesh = mesh;
+    }
+}
+
 const audioLoader = new AudioLoader();
 class Sound {
     constructor(listener) {
@@ -181,108 +296,133 @@ class Sphere {
     }
 }
 
-const ANIMATION_LENGTH = 1;
-class IndicatorCone {
-    constructor() {
-        this.endpoints = [];
-        this.startTime = -1;
-        this.targetLength = 1;
-        const coneGeometry = new CylinderBufferGeometry(0.005, 0.005, 1, 10, 1, false);
-        coneGeometry.rotateX(Math.PI / 2);
-        const coneMaterial = new MeshBasicMaterial({
-            color: 0xffffff,
-            depthTest: false,
-        });
-        const coneInner = new Mesh(coneGeometry, coneMaterial);
-        coneInner.position.set(0, 0, 0.5);
-        const scaled = new Object3D();
-        scaled.add(coneInner);
-        const cone = new Object3D();
-        cone.add(scaled);
-        cone.visible = false;
-        this.scaled = scaled;
-        this.obj = cone;
-        this.mixer = new AnimationMixer(cone);
+function clamp(n, min, max) {
+    if (n < min)
+        return min;
+    if (n > max)
+        return max;
+    return n;
+}
+class Timer extends EventDispatcher {
+    constructor(radius) {
+        super();
+        this.maxTime = 15;
+        this.timePassed = 0;
+        this.outOfTime = false;
+        this.paused = true;
+        this.curve = new EllipseCurve(0, 0, radius - 0.1, radius - 0.1, 0, Math.PI * 2, false, -Math.PI / 2);
+        this.geometry = new BufferGeometry();
+        const material = new LineBasicMaterial({ color: 0x111111 });
+        const line = new Line(this.geometry, material);
+        line.lookAt(0, 1, 0);
+        line.rotateX(Math.PI);
+        line.position.y = 0.01;
+        this.line = line;
+        this.progress(0);
     }
-    hide() {
-        this.obj.visible = false;
-        this.startTime = -1;
+    progress(percent) {
+        const percentage = 1 - clamp(percent, 0, 1);
+        if (percentage === 0 && !this.outOfTime) {
+            this.outOfTime = true;
+            this.dispatchEvent({ type: 'out_of_time' });
+        }
+        this.curve.aEndAngle = Math.PI * 2 * percentage;
+        this.geometry.setFromPoints(this.curve.getPoints(50));
     }
-    set length(value) {
-        this.scaled.scale.z = value;
+    reset(maxTime) {
+        this.maxTime = maxTime;
+        this.timePassed = -1;
+        this.paused = false;
+        this.outOfTime = false;
+        this.progress(0);
     }
-    show(length, start, end) {
-        this.startTime = this.mixer.time;
-        this.targetLength = length;
-        this.obj.position.copy(start);
-        this.obj.lookAt(end);
-        this.length = 0.01;
-        this.obj.visible = true;
-        for (const endpoint of this.endpoints) {
-            endpoint.opacity = 0;
+    update(deltaTime) {
+        if (!this.paused) {
+            this.timePassed += deltaTime;
+            this.progress(this.timePassed / this.maxTime);
         }
     }
-    render() {
-        if (this.startTime < 0)
-            return;
-        if (this.mixer.time > this.startTime + ANIMATION_LENGTH) {
-            this.length = this.targetLength;
-            for (const endpoint of this.endpoints) {
-                endpoint.opacity = 1;
+}
+
+class VRButton {
+    static createButton(renderer) {
+        const button = document.createElement('button');
+        button.className = 'vr-button vr-button--available vr-button--enter';
+        function showEnterVR( /*device*/) {
+            let currentSession = null;
+            function onSessionStarted(session) {
+                session.addEventListener('end', onSessionEnded);
+                renderer.xr.setSession(session);
+                button.textContent = 'EXIT VR';
+                button.classList.remove('vr-button--enter');
+                button.classList.add('vr-button--exit');
+                currentSession = session;
             }
+            function onSessionEnded( /*event*/) {
+                currentSession.removeEventListener('end', onSessionEnded);
+                button.textContent = 'ENTER VR';
+                button.classList.remove('vr-button--exit');
+                button.classList.add('vr-button--enter');
+                currentSession = null;
+            }
+            //
+            button.hidden = false;
+            button.textContent = 'ENTER VR';
+            button.onclick = function () {
+                if (currentSession === null) {
+                    // WebXR's requestReferenceSpace only works if the corresponding feature
+                    // was requested at session creation time. For simplicity, just ask for
+                    // the interesting ones as optional features, but be aware that the
+                    // requestReferenceSpace call will fail if it turns out to be unavailable.
+                    // ('local' is always available for immersive sessions and doesn't need to
+                    // be requested separately.)
+                    navigator.xr
+                        .requestSession('immersive-vr', {
+                        optionalFeatures: [
+                            'local-floor',
+                            'bounded-floor',
+                            'hand-tracking',
+                        ],
+                    })
+                        .then(onSessionStarted);
+                }
+                else {
+                    currentSession.end();
+                }
+            };
+        }
+        function disableButton() {
+            button.hidden = false;
+            button.disabled = true;
+            button.onclick = null;
+        }
+        function showWebXRNotFound() {
+            disableButton();
+            button.textContent = 'VR NOT SUPPORTED';
+        }
+        if ('xr' in navigator) {
+            button.id = 'VRButton';
+            button.hidden = true;
+            navigator.xr
+                .isSessionSupported('immersive-vr')
+                .then(function (supported) {
+                supported ? showEnterVR() : showWebXRNotFound();
+            });
+            return button;
         }
         else {
-            const timePassed = this.mixer.time - this.startTime;
-            const percentagePassed = timePassed / ANIMATION_LENGTH;
-            this.length = this.targetLength * percentagePassed;
-            for (const endpoint of this.endpoints) {
-                endpoint.opacity = percentagePassed;
+            const message = document.createElement('a');
+            message.className = 'vr-button vr-button--not-available';
+            if (window.isSecureContext === false) {
+                message.href = document.location.href.replace(/^http:/, 'https:');
+                message.innerHTML = 'WEBXR NEEDS HTTPS'; // TODO Improve message
             }
+            else {
+                message.href = 'https://immersiveweb.dev/';
+                message.innerHTML = 'WEBXR NOT AVAILABLE';
+            }
+            return message;
         }
-    }
-}
-
-class Dome {
-    constructor(domeRadius) {
-        const sphereGeometry = new SphereBufferGeometry(domeRadius, 20, 20, 0, undefined, Math.PI / 2);
-        sphereGeometry.rotateX(Math.PI);
-        this.material = new MeshBasicMaterial({
-            color: 0x111111,
-            wireframe: true,
-            transparent: true,
-        });
-        const dome = new Mesh(sphereGeometry, this.material);
-        this.obj = dome;
-        this.mixer = new AnimationMixer(dome);
-    }
-}
-
-const loader = new FontLoader();
-class Score {
-    constructor() {
-        this.material = new MeshBasicMaterial({ color: 0x111111, side: FrontSide });
-        this.ready = this.load();
-        this.group = new Group();
-        this.group.position.y = 0.01;
-        this.group.rotateX(-Math.PI / 2);
-    }
-    async load() {
-        this.font = await loader.loadAsync('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json');
-    }
-    async setScore(value) {
-        await this.ready;
-        const geometry = new TextGeometry(value, {
-            font: this.font,
-            size: 0.5,
-            height: 0,
-            curveSegments: 12,
-        });
-        const mesh = new Mesh(geometry, this.material);
-        if (this.mesh) {
-            this.group.remove(this.mesh);
-        }
-        this.group.add(mesh);
-        this.mesh = mesh;
     }
 }
 
@@ -296,6 +436,7 @@ let raycaster;
 let cone;
 let bgm;
 let dome;
+let timer;
 let worker;
 const clock = new Clock();
 const mixers = [];
@@ -331,6 +472,8 @@ function init() {
     pointerResult.addToGroup(scene);
     const score = new Score();
     score.setScore('0');
+    timer = new Timer(domeRadius);
+    scene.add(timer.line);
     //
     const fadeOutKF = new NumberKeyframeTrack('.material.opacity', [0, 5], [1, 0]);
     const domeMixer = new AnimationMixer(dome.obj);
@@ -341,22 +484,28 @@ function init() {
     domeMixer.addEventListener('finished', () => {
         dome.obj.visible = false;
     });
+    const url = new URL(location.toString());
+    if (url.searchParams.has('demo')) {
+        domeMixer.timeScale = 0;
+    }
     //
     worker = new WorkerThread(raycaster);
     worker.onMessage = (data) => {
         switch (data.type) {
             case 'play_audio': {
-                const { audioPosition } = data;
+                const { audioPosition, maxTime } = data;
                 beepMesh.setPosition(toThreeVector(audioPosition));
                 beepSound.play();
                 cone.hide();
                 beepMesh.visible = false;
                 pointerResult.visible = false;
+                timer.reset(maxTime);
                 break;
             }
             case 'display_result': {
                 const { pointerPosition, line, goodGuess } = data;
                 score.setScore(data.score.toString());
+                timer.paused = true;
                 if (pointerPosition) {
                     pointerResult.setPosition(toThreeVector(pointerPosition));
                     pointerResult.visible = true;
@@ -377,6 +526,9 @@ function init() {
             }
         }
     };
+    timer.addEventListener('out_of_time', () => {
+        worker.sendOutOfTime();
+    });
     bgm = document.getElementById('bgm');
     const bgmPanner = new PositionalAudio(audioListener);
     bgmPanner.setMediaElementSource(bgm);
@@ -431,6 +583,7 @@ function render() {
     for (const mixer of mixers) {
         mixer.update(delta);
     }
+    timer.update(delta);
     const xrSession = renderer.xr.getSession() != null;
     if (xrSession !== xrSessionStarted) {
         xrSessionStarted = xrSession;
