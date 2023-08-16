@@ -1,4 +1,4 @@
-import test from 'ava';
+import { expect, test } from 'vitest';
 import { ZERO } from '../../src/worker/math.js';
 import {
   cartesianToSpherical,
@@ -6,32 +6,29 @@ import {
   sphericalInterpolate,
   sphericalToCartesian,
 } from '../../src/worker/radian-math.js';
-import { closeTo } from './assert.js';
 
-test.skip('raycastOnSphereToPoint', (t) => {
-  t.deepEqual(
+test.skip('raycastOnSphereToPoint', () => {
+  expect(
     raycastOnSphereToPoint(
       {
         origin: ZERO,
         direction: { x: 0, y: 1, z: 0 },
       },
       1
-    ),
-    { x: 0, y: 1, z: 0 }
-  );
+    )
+  ).toEqual({ x: 0, y: 1, z: 0 });
 
-  t.deepEqual(
+  expect(
     raycastOnSphereToPoint(
       {
         origin: ZERO,
         direction: { x: 1, y: 0, z: 0 },
       },
       15
-    ),
-    { x: 15, y: 0, z: 0 }
-  );
+    )
+  ).toEqual({ x: 15, y: 0, z: 0 });
 
-  t.deepEqual(
+  expect(
     raycastOnSphereToPoint(
       {
         origin: {
@@ -46,43 +43,42 @@ test.skip('raycastOnSphereToPoint', (t) => {
         },
       },
       4
-    ),
-    { x: 15, y: 0, z: 0 }
-  );
+    )
+  ).toEqual({ x: 15, y: 0, z: 0 });
 });
 
-test('sphericalInterpolate', (t) => {
+test('sphericalInterpolate', () => {
   const interpolate = sphericalInterpolate(
     { theta: 0, phi: 0 },
     { theta: 0, phi: Math.PI }
   );
-  t.deepEqual(interpolate(0.5), { theta: 0, phi: Math.PI / 2 });
+  expect(interpolate(0.5)).toEqual({ theta: 0, phi: Math.PI / 2 });
 });
 
-test('cartesianToSpherical', (t) => {
-  t.deepEqual(cartesianToSpherical({ x: 1, y: 0, z: 0 }), {
+test('cartesianToSpherical', () => {
+  expect(cartesianToSpherical({ x: 1, y: 0, z: 0 })).toEqual({
     theta: Math.PI / 2,
     phi: 0,
   });
 
-  t.deepEqual(cartesianToSpherical({ x: 0, y: 1, z: 0 }), {
+  expect(cartesianToSpherical({ x: 0, y: 1, z: 0 })).toEqual({
     theta: 0,
     phi: 0,
   });
 
-  t.deepEqual(cartesianToSpherical({ x: 0, y: -1, z: 0 }), {
+  expect(cartesianToSpherical({ x: 0, y: -1, z: 0 })).toEqual({
     theta: 0,
     phi: 0,
   });
 });
 
-test('sphericalToCartesian', (t) => {
+test('sphericalToCartesian', () => {
   const toX = sphericalToCartesian({ theta: Math.PI / 2, phi: 0 }, 1);
-  closeTo(1, toX.x);
-  closeTo(0, toX.y);
-  closeTo(0, toX.z);
+  expect(1).toBeCloseTo(toX.x);
+  expect(0).toBeCloseTo(toX.y);
+  expect(0).toBeCloseTo(toX.z);
 
-  t.deepEqual(sphericalToCartesian({ theta: 0, phi: 0 }, 1), {
+  expect(sphericalToCartesian({ theta: 0, phi: 0 }, 1)).toEqual({
     x: 0,
     y: 1,
     z: 0,

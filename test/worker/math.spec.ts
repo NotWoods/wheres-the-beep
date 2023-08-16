@@ -1,14 +1,12 @@
-import test from 'ava';
+import { expect, test } from 'vitest';
 import { distanceSquared } from '../../src/worker/math.js';
-import { closeTo } from './assert.js';
 
-test('distanceSquared', (t) => {
+test('distanceSquared', () => {
   const distSq = distanceSquared(
     { x: -1.662238460495674, y: 3.1631536178355564, z: 1.7410881016267117 },
     { x: -1.2307219371741995, y: 1.512030739326027, z: 3.4927190778376915 }
   );
 
-  closeTo(distSq, 5.980624346658877);
-  closeTo(Math.sqrt(distSq), 2.445531505963249);
-  t.pass();
+  expect(distSq).toBeCloseTo(5.980624346658877);
+  expect(Math.sqrt(distSq)).toBeCloseTo(2.445531505963249);
 });
